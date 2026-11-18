@@ -91,6 +91,9 @@ def imap_server(tmp_path):
     import grp
     import pwd
 
+    dovecot = shutil.which("dovecot") or "/usr/sbin/dovecot"
+    if not os.path.exists(dovecot):  # also for the files that import this fixture (test_mail_outlook)
+        pytest.skip("dovecot not installed")
     root = tmp_path / "dovecot"
     for sub in ("state", "mail", "home"):
         (root / sub).mkdir(parents=True)
@@ -101,7 +104,6 @@ def imap_server(tmp_path):
     conf = root / "dovecot.conf"
     conf.write_text(DOVECOT_CONF.format(run=run, root=root, port=port, user=user,
                                         group=grp.getgrgid(os.getgid()).gr_name, uid=os.getuid(), gid=os.getgid()))
-    dovecot = shutil.which("dovecot") or "/usr/sbin/dovecot"
     subprocess.run([dovecot, "-c", str(conf)], check=True, stdin=subprocess.DEVNULL,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(50):
