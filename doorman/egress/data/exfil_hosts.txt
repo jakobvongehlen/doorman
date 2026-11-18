@@ -1,0 +1,50 @@
+# Paste, file-drop, webhook-capture and tunnel services: places an agent could upload data to and fetch it
+# from elsewhere. Uploads (POST, PUT, PATCH) to these hosts and their subdomains are blocked by the
+# "exfil_upload" category; reading from them is not. One host per line; the owner can replace the list.
+
+# paste sites
+pastebin.com
+paste.ee
+hastebin.com
+ghostbin.co
+dpaste.org
+rentry.co
+ptpb.pw
+termbin.com
+sprunge.us
+ix.io
+paste.rs
+
+# file drops
+transfer.sh
+file.io
+0x0.st
+tmpfiles.org
+
+# request capture and webhook inspection
+webhook.site
+requestbin.com
+pipedream.net
+beeceptor.com
+requestcatcher.com
+hookbin.com
+canarytokens.com
+
+# tunnels to a machine somewhere else
+ngrok.io
+ngrok-free.app
+ngrok.app
+trycloudflare.com
+loca.lt
+serveo.net
+localhost.run
+
+# out-of-band interaction servers (security testing tools, just as handy for getting data out)
+interact.sh
+oast.fun
+oast.pro
+oast.live
+oast.site
+oast.online
+oast.me
+burpcollaborator.net

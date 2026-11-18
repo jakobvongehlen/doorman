@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# Runtime data and secrets: never commit these
+data/
+!doorman/egress/data/
+deploy/data/
+deploy/egress-data/
+deploy/backups/
+doorman.yaml
+*.db
+*.db-wal
+*.db-shm
+vault.enc
+vault.key
+.env
+
+# Go sidecar build output
+sidecars/whatsapp/wacli
+
+# Editor and agent working files
+.claude/
+.impeccable/
+.plan-host/

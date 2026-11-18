@@ -1,0 +1,80 @@
+name: fake_mail
+version: 0.1.0
+description: A mailbox kept in a JSON file, for tests that need any mail plugin (reads, drafts, sends).
+credentials: []
+item: {read: read, param: id, attachments: attachment}
+reads:
+  - name: search
+    description: Message headers, newest first
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        folder: {type: string}
+        unread: {type: boolean}
+        limit: {type: integer, minimum: 1, maximum: 100}
+      additionalProperties: false
+  - name: read
+    description: One message with its body
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: {type: string, pattern: "^m[0-9]{1,6}$"}
+      required: [id]
+      additionalProperties: false
+  - name: attachment
+    description: The text of one attachment
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: {type: string, pattern: "^m[0-9]{1,6}$"}
+        part: {type: integer, minimum: 1}
+        max_chars: {type: integer, minimum: 100, maximum: 200000}
+      required: [id, part]
+      additionalProperties: false
+  - name: thread
+    description: A folder as one object with its messages inside (for the guard's scan_items)
+    trust: third_party
+    raw: true
+    scan_items: messages
+    params:
+      type: object
+      properties:
+        folder: {type: string}
+      additionalProperties: false
+tools:
+  - name: draft
+    description: Save a draft (reversible)
+    tier: reversible
+    ref_fields: [attachments]
+    params: &message
+      type: object
+      properties:
+        to: {type: array, items: {type: string, format: email}, minItems: 1}
+        cc: {type: array, items: {type: string, format: email}}
+        bcc: {type: array, items: {type: string, format: email}}
+        subject: {type: string}
+        body: {type: string}
+        in_reply_to: {type: string, pattern: "^m[0-9]{1,6}$"}
+        attachments: {type: array, items: {type: string}}
+      required: [to, subject, body]
+      additionalProperties: false
+  - name: send
+    description: Send a message. Needs your approval.
+    tier: irreversible
+    editable: [subject, body]
+    ref_fields: [attachments]
+    destinations:
+      - {field: to, kind: email}
+      - {field: cc, kind: email}
+      - {field: bcc, kind: email}
+    params: *message
+events:
+  - name: new_mail
+    description: A message arrived in the inbox
+    fields: [from, subject]

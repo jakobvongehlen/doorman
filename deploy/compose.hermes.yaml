@@ -1,0 +1,90 @@
+# The agent behind the proxy: Hermes. Layered on compose.yaml and compose.egress.yaml, which keep it in; this
+# file only says which image runs and how. In deploy/.env:
+#   COMPOSE_FILE=compose.yaml:compose.egress.yaml:compose.hermes.yaml
+# For another agent, copy this file (compose.myagent.yaml), change these lines and name it in COMPOSE_FILE
+# instead. Its image needs ip (iproute2), setpriv (util-linux) and, for the self-test, curl.
+# Never give it the Docker socket; Hermes's terminal backend stays `local`.
+#
+# Hermes's Docker guide (hermes-agent.nousresearch.com/docs/user-guide/docker), as far as the proxy allows:
+# its start-up work runs (AGENT_BOOTSTRAP), Docker's init reaps (compose.egress.yaml), shared memory and a memory
+# limit as it recommends, its state in a named volume, and the Webapp through agent-webapp below.
+# Not used: its s6 supervisor (the container restarts instead) and the dashboard, which only s6 starts.
+services:
+  agent:
+    # Hermes's image plus iproute2, which the wrapper needs for the route and the image doesn't have.
+    # AGENT_IMAGE in .env: a version you checked; after changing it, docker compose build --pull agent.
+    build:
+      dockerfile_inline: |
+        FROM ${AGENT_IMAGE:-nousresearch/hermes-agent:v0.23.0}
+        RUN apt-get update && apt-get install -y --no-install-recommends iproute2 && rm -rf /var/lib/apt/lists/* \
+            && echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/00doorman-no-sandbox-user
+    # (apt's download sandbox switches to the user _apt, which the agent can't: it has no SETUID. With the agent
+    # as root, apt then works; what it installs lasts until the container is made anew, e.g. by an update)
+    # compose.egress.yaml's `entrypoint:` (the wrapper) replaces the image's own, so its command goes here
+    # (docker image inspect <image>: Config.Entrypoint and Config.Cmd)
+    command: ["hermes", "gateway", "run"]
+    shm_size: 1g                     # Chromium, for the browser tools
+    mem_limit: ${AGENT_MEM_LIMIT:-4g}   # Hermes: 2-4 GB, 1 GB without the browser tools
+    environment:
+      # who the agent runs as: the Hermes image's own user (uid 10000, home /opt/data); a name or uid:gid;
+      # empty: root (still without the capabilities agent-entrypoint.sh drops). Its home goes in AGENT_HOME
+      # in .env when it isn't /opt/data: the decoy keys go there.
+      AGENT_USER: ${AGENT_USER-hermes}
+      # Hermes as root (AGENT_USER empty, e.g. so it can use apt): both set to 1 in .env. Hermes refuses a root
+      # gateway without the first, and its `hermes` command drops to the user hermes without the second.
+      # Only on a rootless Docker that runs nothing but the agent: there the container's root is the host user
+      # that runs that Docker, and that user should hold nothing worth taking.
+      HERMES_ALLOW_ROOT_GATEWAY: ${HERMES_ALLOW_ROOT_GATEWAY:-}
+      HERMES_DOCKER_EXEC_AS_ROOT: ${HERMES_DOCKER_EXEC_AS_ROOT:-}
+      # Hermes's start-up work, as root before the agent starts (agent-entrypoint.sh): the data volume's
+      # ownership, the first boot's config, config migrations after an upgrade, the gateway's own API key
+      # (its cron jobs need it). The image runs it the same way under an init that isn't its own
+      # (/opt/hermes/docker/entrypoint-dispatch.sh).
+      AGENT_BOOTSTRAP: "PATH=/command:/package/admin/s6/command:$$PATH /opt/hermes/docker/stage2-hook.sh"
+      # where it starts, and so where its terminal runs commands: in its volume, not its program folder
+      # /opt/hermes (the image's), which an update replaces
+      AGENT_WORKDIR: /opt/data/workspace
+      # The Webapp's sign-in: Hermes refuses a Webapp on 0.0.0.0 without one (agent-webapp below)
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_WEBAPP_USER:-owner}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_WEBAPP_PASSWORD:-}
+    volumes:
+      # the agent's own state, writable by AGENT_USER (a named volume takes the image's ownership; a bind
+      # mount needs chown 10000:10000 on the host)
+      - hermes-data:/opt/data
+
+  # Hermes's Webapp (Hermes Desktop in a browser) on 127.0.0.1:9120 of the host: COMPOSE_PROFILES=webapp in
+  # .env, and in Hermes's config.yaml `webapp: {enabled: true, host: 0.0.0.0, port: 9120, public_url:
+  # "http://localhost:9120"}`. The agent's network is internal, so Docker can't publish a port from it; this
+  # forwards that port, and 3000-3009 for web apps the agent runs: it starts a server on one of them, listening
+  # on 0.0.0.0, and it's at http://<host>:<port> at once, without changing this file. Those ports and nothing
+  # else; it doesn't route: the agent reaching it reaches its own servers.
+  agent-webapp:
+    profiles: [webapp]
+    build:
+      dockerfile_inline: |
+        FROM alpine:3.22
+        RUN apk add --no-cache socat
+    # one socat per port, each started again if it ever stops
+    command: ["sh", "-c", "for p in 9120 $$(seq 3000 3009); do (while :; do socat TCP-LISTEN:$$p,fork,reuseaddr TCP:agent:$$p; sleep 1; done) & done; wait"]
+    restart: unless-stopped
+    depends_on: [agent]
+    networks: [egress, agent-webapp]
+    ports:
+      - "127.0.0.1:${HERMES_WEBAPP_PORT:-9120}:9120"
+      - "127.0.0.1:3000-3009:3000-3009"  # the agent's web apps
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      net.ipv4.ip_forward: 0         # on both networks: never a router between them
+    mem_limit: 32m
+    pids_limit: 64
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+networks:
+  agent-webapp: {}                   # only so the Webapp's port can be published
+
+volumes:
+  hermes-data: {}                    # Hermes's config, memory and sessions

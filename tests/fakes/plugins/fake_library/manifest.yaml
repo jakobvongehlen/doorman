@@ -1,0 +1,31 @@
+name: fake_library
+version: 0.1.0
+description: Items from its config, fed to Doorman's search index; the smallest source of doorman search.
+credentials: []
+config:
+  items: "[{key, title, text, date, kind, from, in}]: what it feeds"
+index: {read: get, kinds: [note, file, mail]}
+reads:
+  - name: get
+    description: One item with its text
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        key: {type: string}
+      required: [key]
+      additionalProperties: false
+tools:
+  - name: keep
+    description: Keep an item; made_by is the calling key's name, set by Doorman
+    tier: reversible
+    caller_arg: made_by
+    params:
+      type: object
+      properties:
+        key: {type: string}
+        text: {type: string}
+        made_by: {type: string}
+      required: [key, text]
+      additionalProperties: false

@@ -1,0 +1,192 @@
+name: mail_imap
+version: 0.1.0
+description: Mail over IMAP and SMTP. Messages are identified by Message-ID, so moves stay traceable. Nothing is ever hard-deleted.
+credentials: [username, password]
+optional_credentials: [smtp_username, smtp_password]   # when the SMTP server has a login of its own
+network: ["{imap_host}", "{smtp_host}"]
+ref_read: read             # mail:<message-id>#<n> references (attachment n, as read lists them)
+# the archive feeds doorman search; mail.read's switch gates it, mail.attachment's an attachment's text in it;
+# of its settings, archive and check_hidden_text change what it feeds (the archive follows the rest itself)
+index: {read: read, kinds: [mail], every_minutes: 5, needs: {attachment: attachment},
+        settings: [archive, check_hidden_text]}
+recent: recent             # what Doorman's what's-new list over mail and chats (doorman recent) asks
+item: {read: read, param: id, attachments: attachment}   # one message by its ref: doorman meta, doorman ask, the reader
+known_recipients: sent_mail   # whom you wrote to (the archive's Sent folder): no "new recipient" warning for them
+jobs:
+  - {name: archive, every_minutes: 5, budget_seconds: 120, off_when: {archive: "off"}}
+# what agents may change (doorman.configure); the rest is the owner's. Of folders only drafts, archive and
+# agent_trash: which folder counts as Sent decides who "you wrote to before" (known_recipients)
+agent_settings: [folders.drafts, folders.archive, folders.agent_trash, archive, archive_months, archive_skip_folders, archive_ocr]
+agent_add_only: [archive_skip_folders]   # agents may skip more folders, never archive one the owner skipped
+agent_install: true      # agents may set one up (doorman.install); it starts switched off
+config:
+  imap_host: IMAP server
+  imap_port: default 993 (143 with imap_security starttls/none)
+  imap_security: ssl (default), starttls or none
+  smtp_host: SMTP server
+  smtp_port: default 587
+  smtp_security: starttls (default), ssl or none
+  from_address: the From address for sent mail
+  smtp_login_without_tls: "true to log in to SMTP although smtp_security is none (a server on your own network only)"
+  server_files_sent: "true when the server files sent mail itself (Gmail, Exchange): Doorman then adds no second copy to Sent"
+  folders: "names for drafts, sent and archive when the server has no special-use flags; agent_trash (default 'Agent trash') is where deletes go"
+  archive: "index (default): Doorman keeps the text of every message and attachment, in doorman search, also after it's deleted on the server; full: the original messages too (gzipped), so they can be read and sent on after that; off: no archive, and no mail in doorman search"
+  archive_months: "keep only the last N months in the archive, e.g. 24; older mail is dropped as it ages (default: everything)"
+  archive_skip_folders: "more folders not to archive; Junk/Spam, Trash, Drafts, the Outbox and the Agent trash never are"
+  archive_ocr: "read scanned attachments with OCR in the background (default true)"
+  check_hidden_text: "check PDF attachments for text nobody can see (default true)"
+reads:
+  - name: folders
+    description: Folder names
+    trust: owner
+    params: {type: object, additionalProperties: false}
+  - name: search
+    description: >-
+      Messages in a folder, newest first: headers, the attachments' names, a snippet (the text's first ~160
+      characters) and bulk (a mailing list or newsletter). bulk true or false keeps only mass mail or only
+      the rest; it is filtered after fetching the headers, so it looks through the newest 1000 messages that
+      match the other filters. Third-party text. To find mail anywhere in the mailbox (attachments, older
+      and deleted mail too), use doorman search.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      # IMAP is a line protocol: no line breaks or other control characters in anything that goes to the server
+      properties:
+        folder: &folder {type: string, minLength: 1, maxLength: 500, not: &control {pattern: '[\x00-\x1f\x7f]'}}
+        query: {type: string, maxLength: 1000, not: *control}
+        from: {type: string, maxLength: 500, not: *control}
+        since: {type: string, format: date}
+        unread: {type: boolean}
+        bulk: {type: boolean, description: "true: only mailing lists and newsletters (List-Id, List-Unsubscribe, Precedence bulk); false: none of them"}
+        limit: {type: integer, minimum: 1, maximum: 200}
+      additionalProperties: false
+  - name: recent
+    description: >-
+      The inbox's newest messages from since on, newest first: sender, date, subject, unread, snippet,
+      attachments, bulk. What doorman
+      recent asks. Subjects and senders are third-party text.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        since: {type: string, minLength: 10, maxLength: 40, description: "ISO date or date-time"}
+        limit: {type: integer, minimum: 1, maximum: 50, description: "default 20"}
+      additionalProperties: false
+  - name: read
+    description: >-
+      One message with its text body and its attachments: part number, ref (mail:<id>#<n>), name, type,
+      size. The body is cut at max_chars (default 20000); a longer one comes with truncated: true and chars
+      (its whole length): ask again with a larger max_chars for more.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: &message_id {type: string, minLength: 1, maxLength: 998, not: *control}
+        max_chars: {type: integer, minimum: 100, maximum: 200000}
+      required: [id]
+      additionalProperties: false
+  - name: attachment
+    description: >-
+      The text of one attachment: PDFs (scanned pages are read with OCR; ocr_pages lists them), images,
+      Word, OpenDocument, text, HTML. part is its number in read.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: *message_id
+        part: {type: integer, minimum: 1}
+        max_chars: {type: integer, minimum: 100, maximum: 200000}
+      required: [id, part]
+      additionalProperties: false
+tools:
+  - name: draft
+    description: Save a draft. Drafts stay in your mailbox, so this is reversible.
+    tier: reversible
+    ref_fields: [attachments]
+    params: &message
+      type: object
+      properties:
+        to: {type: array, items: {type: string, format: email}, minItems: 1}
+        cc: {type: array, items: {type: string, format: email}}
+        bcc: {type: array, items: {type: string, format: email}}
+        subject: {type: string}
+        body: {type: string}
+        in_reply_to: {<<: *message_id, description: id of the message being answered}
+        attachments: {type: array, items: {type: string}, description: "references such as files:contracts/2023.pdf, mail:<message-id>#1 or upload:<sha256>"}
+        draft_id: {<<: *message_id, description: "send: delete this draft after sending"}
+      required: [to, subject, body]
+      additionalProperties: false
+  - name: send
+    description: Send a message. Needs your approval.
+    tier: irreversible
+    editable: [subject, body]   # the owner may change these on the approval screen
+    ref_fields: [attachments]
+    destinations:
+      - {field: to, kind: email}
+      - {field: cc, kind: email}
+      - {field: bcc, kind: email}
+    params: *message
+  - name: reply
+    description: >-
+      Answer a message by its id. Doorman addresses it: To is its Reply-To or sender, with all:true its other
+      recipients go in Cc, your own addresses never; Subject "Re: ..." and the thread headers are set. A send:
+      it needs your approval.
+    tier: irreversible
+    editable: [body]   # the owner may change the text on the approval screen
+    ref_fields: [attachments]
+    destinations:
+      - {field: to, kind: email}
+      - {field: cc, kind: email}
+    params: &reply
+      type: object
+      properties:
+        id: {<<: *message_id, description: "Message-ID of the mail you answer (id from search, read or an event)"}
+        body: {type: string}
+        all: {type: boolean, description: "reply to all: the mail's other To and Cc go in Cc (default false)"}
+        cc: {type: array, items: {type: string, format: email}, description: more people to copy in}
+        attachments: {type: array, items: {type: string}, description: "references such as files:contracts/2023.pdf, mail:<message-id>#1 or upload:<sha256>"}
+      required: [id, body]
+      additionalProperties: false
+  - name: draft_reply
+    description: Save a reply as a draft in your mailbox, addressed as reply would. Reversible.
+    tier: reversible
+    ref_fields: [attachments]
+    params: *reply
+  - name: move
+    description: Move a message to another folder
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: *message_id
+        folder: *folder
+      required: [id, folder]
+      additionalProperties: false
+  - name: label
+    description: Add or remove keywords (labels), or the \Seen and \Flagged flags (never \Deleted)
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: *message_id
+        add: {type: array, items: &flag {type: string, maxLength: 200, pattern: '^\\?[^\x00-\x20\x7f(){%*"\\\]]+$', not: *control, description: "one flag or keyword: no spaces, brackets or quotes"}}
+        remove: {type: array, items: *flag}
+      required: [id]
+      additionalProperties: false
+  - name: delete
+    description: Move a message to the Agent trash folder, never the server's Trash (reversible)
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: *message_id
+      required: [id]
+      additionalProperties: false
+events:
+  - name: new_mail
+    description: A message arrived in the inbox. Read it with read id=<id from the ref> before acting on it.
+    fields: [from, subject]

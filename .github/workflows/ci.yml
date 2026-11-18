@@ -1,0 +1,78 @@
+# The tests, the proxy's own tests and the image builds, on every push to main and every pull request.
+# Actions are pinned to a commit, since a tag can be moved.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (Python 3.13, the image's packages)
+    runs-on: ubuntu-24.04
+    # Debian 13 like the image, with its Dovecot 2.4: the mail tests' stand-in server is configured for that
+    container: python:3.13-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install Dovecot for the mail tests
+        run: apt-get update && apt-get install -y --no-install-recommends dovecot-imapd libseccomp2
+      - name: Install the packages the image gets, then Doorman and the test tools
+        run: |
+          pip install --no-cache-dir --require-hashes -r deploy/requirements.lock
+          pip install --no-cache-dir -e ".[test]"
+      # not as root: Doorman's own commands refuse that or switch user, and tests/test_privsep.py is the
+      # only file written for it
+      - name: Run every test as an ordinary user
+        run: |
+          useradd --create-home tester
+          chown -R tester: .
+          setpriv --reuid tester --regid tester --init-groups env HOME=/home/tester python -m pytest -n 4
+
+  oldest-python:
+    name: Tests (Python 3.11, newest packages)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.11"
+      # as the README's quick start installs it; without Dovecot the mail tests against it skip
+      - run: pip install -e ".[all,test]"
+      - run: python -m pytest -n 4 -m "not slow"
+
+  proxy:
+    name: Network watch proxy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install what the proxy's image gets, and pytest
+        run: |
+          pip install --require-hashes -r deploy/egress/requirements.lock
+          pip install pytest
+      - run: python -m pytest deploy/egress/tests
+
+  images:
+    name: Docker images
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build the images the compose files build
+        run: |
+          docker build -f deploy/Dockerfile -t doorman .
+          docker build -f deploy/reader.Dockerfile -t doorman-reader .
+          docker build -f deploy/egress/Dockerfile -t doorman-egress .
+          docker build -f deploy/egress/observer.Dockerfile -t doorman-observer .
+          docker build -t doorman-whatsapp sidecars/whatsapp
+      - name: Every plugin loads with the image's packages
+        run: docker run --rm doorman doorman-admin plugins check

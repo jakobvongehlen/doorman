@@ -1,0 +1,9 @@
+name: doorman-activity
+version: "1.0"
+description: Tells Doorman when each tool call starts and ends, so its network log shows which call made a connection.
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+requires_env:
+  - DOORMAN_URL
+  - DOORMAN_TOKEN

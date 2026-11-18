@@ -1,0 +1,90 @@
+name: nextcloud_notes
+version: 0.1.0
+description: >-
+  Nextcloud Notes through the Notes app's API. Writing, changing and deleting notes run right away and
+  can be undone; deleting moves a note to an "Agent trash" category instead of removing it.
+credentials: [username, password]   # password: a Nextcloud app password (Settings → Security)
+network: ["{url}"]
+ref_read: get
+# feeds doorman search (index_feed); get's switch gates the text, and list's the hits (they list notes)
+index: {read: get, kinds: [note], every_minutes: 5, needs: {note: list}, security_senders: false}
+agent_settings: [trash_category]   # what agents may change (doorman.configure); the rest is the owner's
+agent_install: true      # agents may set one up (doorman.install); it starts switched off
+config:
+  url: Nextcloud address, e.g. https://cloud.example.com
+  trash_category: category deleted notes go to (default "Agent trash")
+  allow_http: "true to allow a plain http:// address (a server on your own network only)"
+reads:
+  - name: list
+    description: >-
+      Notes with id, title, category and when they changed (no text), the last changed first. Notes in the
+      trash category are left out. doorman search finds notes by what they say.
+    trust: owner
+    params:
+      type: object
+      properties:
+        category: {type: string}
+      additionalProperties: false
+  - name: get
+    description: One note with its text
+    trust: owner
+    params:
+      type: object
+      properties:
+        id: {type: integer}
+      required: [id]
+      additionalProperties: false
+  - name: categories
+    description: Categories in use, with how many notes each holds
+    trust: owner
+    params: {type: object, additionalProperties: false}
+tools:
+  - name: create
+    description: Write a new note
+    tier: reversible
+    params:
+      type: object
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        content: {type: string}
+        category: {type: string}
+        favorite: {type: boolean}
+      required: [title]
+      additionalProperties: false
+  - name: update
+    description: Change a note's title, text, category or favorite mark
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: {type: integer}
+        changes:
+          type: object
+          properties:
+            title: {type: string, minLength: 1, maxLength: 200}
+            content: {type: string}
+            category: {type: string}
+            favorite: {type: boolean}
+          additionalProperties: false
+          minProperties: 1
+      required: [id, changes]
+      additionalProperties: false
+  - name: append
+    description: Add text to the end of a note
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: {type: integer}
+        text: {type: string, minLength: 1}
+      required: [id, text]
+      additionalProperties: false
+  - name: delete
+    description: Move a note to the Agent trash category (undoable; empty it yourself in Nextcloud)
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: {type: integer}
+      required: [id]
+      additionalProperties: false

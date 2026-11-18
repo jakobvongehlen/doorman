@@ -1,0 +1,157 @@
+# Network watch, layered on compose.yaml: the agent's only way out is the egress proxy, which logs every
+# connection, applies the owner's rules and reports or blocks requests carrying what Doorman served
+# (deploy/egress/README.md). Needs a third file that names the agent's image and command: compose.hermes.yaml,
+# or a copy of it for your own agent. In deploy/.env:
+#   COMPOSE_FILE=compose.yaml:compose.egress.yaml:compose.hermes.yaml
+# This file holds everything that keeps the agent in: its network, the wrapper that routes it through the
+# proxy and drops its capabilities, the observer and the decoy keys. The agent's own file adds only what
+# belongs to its image, so a different agent can't loosen any of it by accident.
+services:
+  doorman:
+    networks:                        # added to compose.yaml's agent and default
+      egress:                        # the agent behind the egress proxy reaches doorman:8710 here
+        ipv4_address: 172.29.0.10
+      egress-control-doorman:        # the proxy's own calls (policy, checks, log), off the agent's network
+        ipv4_address: 172.29.1.10
+
+  # The egress proxy (mitmproxy with Doorman's addon), the agent's default route and DNS. Generate its token
+  # under More > Network in the app first (DOORMAN_EGRESS_TOKEN in .env).
+  egress:
+    build:
+      context: ..
+      dockerfile: deploy/egress/Dockerfile
+    restart: unless-stopped
+    networks:
+      egress:
+        ipv4_address: 172.29.0.2     # the agent's gateway and DNS server
+      egress-out: {}                 # the internet; not Doorman's default network, which the owner app trusts
+      egress-control: {}             # the observer
+      egress-control-doorman:        # Doorman's proxy API; the agent can't see this traffic
+        ipv4_address: 172.29.1.2
+    # root only while entrypoint.sh sets up iptables, then mitmdump runs as the user egress with none of these
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_BIND_SERVICE, SETUID, SETGID, CHOWN, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      net.ipv4.conf.all.send_redirects: 0   # the agent's gateway on the agent's own subnet: no ICMP redirects
+      net.ipv6.conf.all.disable_ipv6: 1     # the rules and the log are IPv4; nothing may go around them
+      net.ipv6.conf.default.disable_ipv6: 1
+    environment:
+      DOORMAN_URL: http://172.29.1.10:8710  # Doorman on egress-control-doorman, not the agent's network
+      DOORMAN_EGRESS_TOKEN: ${DOORMAN_EGRESS_TOKEN:-}
+      OBSERVER_URL: http://egress-observer:8720
+      EGRESS_AGENT_IP: 172.29.0.2
+      EGRESS_GEOIP: ${EGRESS_GEOIP:-1}      # 0: no country table (no download from download.db-ip.com)
+    volumes:
+      - ./egress-data:/data          # mitmproxy's CA (its key never leaves), GeoIP table, last policy
+      - egress-ca:/ca                # the CA certificate only, for the agent to trust
+      - agent-config:/decoys         # the decoy keys file the proxy writes for the agent (deploy/egress/README.md)
+    mem_limit: 256m
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+  # Which process opened a connection: shares the agent's process view (and nothing else), reads /proc.
+  # It also watches the decoy keys file in the agent's home (inotify through /proc/1/root) and tells the proxy
+  # when it is opened or its folder listed.
+  egress-observer:
+    build:
+      context: ..
+      dockerfile: deploy/egress/observer.Dockerfile
+    restart: unless-stopped
+    pid: "service:agent"
+    networks: [egress-control]       # reachable by the proxy only; no internet
+    # The image starts as root only to switch to its own user (uid 10004) keeping SYS_PTRACE and DAC_READ_SEARCH
+    # (to read the agent's processes' socket links and /proc/<pid>/fd); SETUID and SETGID are for that switch.
+    # Not root and not the agent's user: the agent shares this PID namespace but can't signal it.
+    cap_drop: [ALL]
+    cap_add: [SYS_PTRACE, DAC_READ_SEARCH, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    environment:
+      # the decoy keys file as the agent sees it (the agent-config mount in the agent below)
+      OBSERVER_DECOY_PATH: ${AGENT_HOME:-/opt/data}/.config/secrets/api-keys.env
+      AGENT_IP: 172.29.0.3           # the agent's fixed address (below), named in the tripwire's events
+    mem_limit: 48m
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+  # The agent behind the proxy, without an image: the agent's own file (compose.hermes.yaml) sets image,
+  # command, AGENT_USER and its volumes. Its only network is doorman-egress; agent-entrypoint.sh sets the route
+  # and DNS to the proxy, trusts the proxy's CA and drops NET_ADMIN before the agent starts.
+  agent:
+    restart: unless-stopped
+    depends_on: [egress]
+    user: "0:0"                      # the wrapper needs root for the route; AGENT_USER is who the agent runs as
+    entrypoint: ["/bin/sh", "/egress/agent-entrypoint.sh"]
+    networks:
+      egress:
+        # fixed: Doorman ties keys to it and the proxy cuts a quarantined agent off by it, which a re-created
+        # container must not shake off with a new address
+        ipv4_address: 172.29.0.3
+    dns: [172.29.0.2]
+    extra_hosts: ["doorman:172.29.0.10"]   # agent-entrypoint.sh points resolv.conf at the proxy, past Docker's DNS
+    # Docker's init as PID 1, to reap what the agent leaves behind: the wrapper replaces the image's own init
+    # (Hermes: s6-overlay's /init, whose start-up work AGENT_BOOTSTRAP runs instead)
+    init: true
+    # NET_ADMIN, SETPCAP, SETUID and SETGID only for agent-entrypoint.sh, which drops them (and NET_RAW) before
+    # the agent starts. No NET_RAW and no KILL at all: no sniffing or spoofing on the agent's network, no
+    # signals to the observer (which shares the agent's PID namespace).
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETPCAP, SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1     # the proxy sees IPv4 only
+      net.ipv6.conf.default.disable_ipv6: 1
+    environment:
+      EGRESS_GATEWAY: 172.29.0.2
+      DOORMAN_URL: http://doorman:8710
+      DOORMAN_TOKEN: ${AGENT_DOORMAN_TOKEN:-}
+      NO_PROXY: doorman
+      AGENT_HOME: ${AGENT_HOME:-/opt/data}  # for selftest.sh's decoy check
+    volumes:
+      - egress-ca:/ca:ro
+      - ./egress/agent-entrypoint.sh:/egress/agent-entrypoint.sh:ro
+      - ./egress/selftest.sh:/egress/selftest.sh:ro
+      # the decoy keys, read-only: the agent can't change or delete them, and touching them stops it.
+      # AGENT_HOME is the agent's home (Hermes: /opt/data); deploy/egress/README.md, "Decoy keys"
+      - agent-config:${AGENT_HOME:-/opt/data}/.config/secrets:ro
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+networks:
+  egress:
+    name: doorman-egress            # the agent behind the proxy: no way out but the egress container
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      # a fixed name for the host's INPUT rule (deploy/egress/README.md): the host's address on this bridge
+      # (172.29.0.1) is on-link for the agent, so the proxy never sees connections to it
+      com.docker.network.bridge.name: br-doorman-egr
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24    # not in owner_allow_cidrs either
+          gateway: 172.29.0.1
+          ip_range: 172.29.0.128/25  # dynamic addresses from here: never the proxy's .2, the agent's .3 or
+                                     # Doorman's .10
+  egress-out: {}                    # the proxy's own way to the internet
+  egress-control:
+    internal: true                  # proxy <-> observer
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.29.2.0/24
+          ip_range: 172.29.2.128/25
+  egress-control-doorman:
+    name: doorman-egress-control    # proxy <-> Doorman's proxy API, and nobody else
+    internal: true
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.29.1.0/24
+          ip_range: 172.29.1.128/25  # dynamic addresses never take the proxy's .2 or Doorman's .10
+
+volumes:
+  egress-ca: {}                      # the egress proxy's CA certificate, mounted read-only into the agent
+  agent-config: {}                   # the decoy keys: written by the proxy, read-only in the agent's home. A plain
+                                     # name: the agent sees it in /proc/self/mountinfo. Keep host backups out of
+                                     # it: reading it trips the wire

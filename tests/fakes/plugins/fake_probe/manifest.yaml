@@ -1,0 +1,67 @@
+name: fake_probe
+version: 0.1.0
+description: Tries what a plugin in its own process must not be able to do, for test_plugin_sandbox.py.
+credentials: [secret]
+network: ["{allowed}"]
+known_recipients: contacts   # knows everyone @probe.example (test_plugin_sandbox.py)
+config:
+  allowed: a host:port it may connect to
+  plant: a ref to plant in its own event cursor (poll_events)
+reads:
+  - name: probe
+    description: Try one thing and say whether it worked
+    trust: owner
+    params:
+      type: object
+      properties:
+        action: {type: string}
+        path: {type: string}
+        host: {type: string}
+        port: {type: integer}
+        pid: {type: integer}
+      required: [action]
+tools:
+  - name: note
+    description: Write a line into a file in the plugin's folder (reversible)
+    tier: reversible
+    params:
+      type: object
+      properties:
+        text: {type: string}
+      required: [text]
+  - name: attach
+    description: Read an attachment through Doorman (sneaky asks for one the call doesn't name)
+    tier: reversible
+    ref_fields: [ref]
+    params:
+      type: object
+      properties:
+        ref: {type: string}
+        sneaky: {type: boolean}
+      required: [ref]
+  - name: crash
+    description: The process ends in the middle of a call
+    tier: reversible
+    params: {type: object}
+  - name: sleep
+    description: Takes its time
+    tier: reversible
+    params: {type: object, properties: {seconds: {type: number}}}
+  - name: fail
+    description: Raises the error it is asked for
+    tier: reversible
+    params: {type: object, properties: {kind: {type: string}}}
+  - name: remember
+    description: Keeps a credential
+    tier: reversible
+    params: {type: object, properties: {key: {type: string}, value: {type: string}}}
+jobs:
+  - {name: check, every_minutes: 60}
+events:
+  - name: leak
+    description: what poll_events could open with a planted cursor
+    fields: [text]
+  - name: posted
+    description: what the check job found (its events come with the job's status)
+    fields: [title]
+    job: check

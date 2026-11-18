@@ -1,0 +1,54 @@
+name: contacts
+version: 0.1.0
+description: >-
+  Your address book over CardDAV (Nextcloud Contacts, Radicale), read-only: find a person's addresses and
+  numbers by name, address, number or organisation. Only your own address books; ones others share with
+  you are left out.
+# Trust: owner. These are entries you typed or synced yourself, so they aren't cleaned or scanned and
+# don't count as outside content for the session. That only holds for books you own. A book someone
+# shares with you (Nextcloud's "shared by", the server's system address book of every user) is filled
+# by other people, who could put a misleading name, a wrong address or instructions into it; the plugin
+# never reads those, not even when `books` names one (check() says so). An address or number in one of
+# your own books counts as yours in the recipient check (known_recipients, More → Trust list → "People in
+# your contacts"); an agent reading a contact changes nothing about that, and it can't add one.
+credentials: [username, password]
+network: ["{url}"]                 # the CardDAV server
+contacts: search                   # what the owner app's "Trust a contact" picker asks (GET /owner/contacts)
+known_recipients: contacts         # a send to someone in your own books has no "new recipient" warning
+agent_settings: [books]            # what agents may change (doorman.configure)
+agent_narrow: [books]              # only fewer books, never more: a book decides who counts as "in your contacts"
+agent_install: true                # agents may set one up (doorman.install); it starts switched off
+config:
+  url: CardDAV URL (server root or principal URL), e.g. https://cloud.example.com/remote.php/dav/
+  books: "names of your address books to use (default all of your own); shared books are never read"
+  allow_http: "true to allow a plain http:// address (a server on your own network only)"
+reads:
+  - name: books
+    description: >-
+      The address books on the server: name, whether it's used, and for a shared one who shares it (shared
+      books are never read)
+    trust: owner
+    params: {type: object, additionalProperties: false}
+  - name: search
+    description: >-
+      Contacts whose name, email address, phone number, organisation or job title matches the query (every
+      word must match; a number matches in any format). Without a query, everyone, by name. Returns
+      {contacts: [{id, name, emails, phones, organisation, title, birthday, book, ref}], more}.
+    trust: owner
+    params:
+      type: object
+      properties:
+        query: {type: string, maxLength: 200}
+        with_email: {type: boolean, description: only contacts with an email address}
+        limit: {type: integer, minimum: 1, maximum: 200, description: default 20}
+      additionalProperties: false
+  - name: get
+    description: One contact by id, with name parts, every address and number, organisation, birthday and note
+    trust: owner
+    private: true      # the note and birthday are more than an address: a send after this is checked against it
+    params:
+      type: object
+      properties:
+        id: {type: string, minLength: 1, maxLength: 500}
+      required: [id]
+      additionalProperties: false

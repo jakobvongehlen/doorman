@@ -1,0 +1,41 @@
+name: fake_parts
+version: 0.1.0
+description: >-
+  Items from its config as the search index takes them (parts, refs, hidden-text flags), with a read of its
+  own for attachments, tasks and chats, like mail, caldav and WhatsApp; for tests of what search gates.
+credentials: []
+config:
+  items: "[{key, kind, title, parts | text, refs, same, fields, ...}]: what it feeds, as they are"
+# get gates every hit; tasks, chats and attachments need their own read too
+index: {read: get, kinds: [mail, event, task, chat], needs: {task: tasks, chat: messages, attachment: attachment}}
+item: {read: get, param: key, attachments: attachment}
+reads:
+  - name: get
+    description: One item with its parts
+    trust: third_party
+    params:
+      type: object
+      properties:
+        key: {type: string}
+      required: [key]
+      additionalProperties: false
+  - name: attachment
+    description: One part of an item
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        key: {type: string}
+        part: {type: integer}
+      required: [key, part]
+      additionalProperties: false
+  - name: tasks
+    description: The tasks
+    trust: owner
+    params: {type: object, additionalProperties: false}
+  - name: messages
+    description: A chat's messages
+    trust: third_party
+    params: {type: object, additionalProperties: false}
+tools: []

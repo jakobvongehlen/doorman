@@ -1,0 +1,185 @@
+# Doorman configuration. Secrets never go in this file: use `doorman-admin vault set`.
+
+data_dir: ./data                     # database, encrypted vault, plugin data
+public_url: https://doorman.example.com   # where you open the phone app; passkeys are bound to this host
+timezone: Europe/Berlin              # for routines (cron)
+
+# The agent API must only be reachable from the agent's container; the owner app is
+# what you expose (e.g. through a Cloudflare tunnel or a reverse proxy with HTTPS).
+agent_listen: 0.0.0.0:8710
+owner_listen: 0.0.0.0:8711
+# Only clients from these networks reach the owner app. With the compose file, that's the
+# default network (port-forwarded traffic from the host); the agent network is left out.
+owner_allow_cidrs: [172.30.0.0/24, 127.0.0.0/8]
+taint_window_hours: 12               # reading third-party and private data within this window = tainted
+
+owner:
+  identities: [me@example.com]       # your own addresses: attendees and senders that are you
+
+approval_ttl_hours: 24               # every email, message and invitation waits this long for your approval
+push_group_seconds: 60               # sends of one task within this long share one notification
+send_wait_seconds: 3                 # after Send, the app waits this long for the result, then says "Sending"
+task_lease_minutes: 30              # a claimed task the agent hasn't reported by then fails (you get a push)
+approval_passkey: false             # true: sign every approval with your passkey; false: a tap in the logged-in app
+reader_actor_split: true             # actors never read raw third-party text; readers never write
+limits:
+  direct_per_day: 30                 # no_approval plugins run this many actions a day without asking, then ask again
+# Who counts as yours on a send, besides your task, your answers, the thread and the trust list. Both on
+# unless set; usually switched in the app (More → Trust list); a key set here is fixed and read-only there.
+# trust:
+#   contacts: true                   # people in your own address books (the contacts plugin): no "new recipient"
+#   written_before: true             # anyone you approved a send to, or wrote to from your mail (its Sent folder)
+
+push:                                # Web Push to the owner app; turn it on in the app under More > Notifications
+  subject: mailto:you@example.com    # contact for push services; Apple wants a real mailto: or https URL
+                                     # (defaults to public_url when that is https)
+
+reviewer:
+  enabled: false                     # second opinion from Claude on irreversible actions
+  model: claude-opus-5-5
+  effort: medium
+  api_key_env: ANTHROPIC_API_KEY
+
+# semantic:                         # semantic search: mail found by meaning, in any language (Granite
+#   enabled: true                   # Embedding 97M, ~160 MB, downloaded when switched on; ~500 MB while it
+#                                   # runs). Usually switched in the app: More → Semantic search.
+
+# agent_setup: false               # agents may change harmless plugin settings, set up plugins (switched off
+#                                   # until you switch them on) and switch things off; false forbids all of it
+
+backup:                              # the worker makes one every night; doorman-admin backup status shows when
+  dir: /backups                      # deploy/backups on the host; made Doorman's (0700) at start while root owns it
+  schedule: "03:30"                  # time of day in `timezone`; null: no nightly run (then doorman-admin backup)
+  keep: 14
+  extra_paths: []                    # e.g. [/srv/whatsapp/store] for the WhatsApp session (mount deploy/whatsapp there)
+  # A backup on this disk doesn't survive the disk: copy each one off the host. Your own tool, installed in the
+  # image; no shell runs it. {path}: the backup's directory, {name}: its name, {dir}: backup.dir.
+  # copy_command: rclone copy {path} offsite:doorman/{name}    # or: restic backup {path}
+  # copy_env: [RCLONE_CONFIG]        # variables it may have (restic: RESTIC_REPOSITORY, RESTIC_PASSWORD_FILE)
+  # copy_timeout_minutes: 120
+
+# health:
+#   ping_url: https://hc-ping.com/<id>   # dead-man switch: GET every 5 minutes (<ping_url>/fail when unhealthy);
+#                                       # the service mails you when the pings stop
+
+honeytokens: []                      # strings planted in decoy files; any payload containing one is blocked
+# - CANARY-3f9a1c
+# plugin_paths: [/srv/doorman-plugins] # folders with plugins of your own, one folder per plugin (docs/writing-plugins.md)
+plugin_sandbox: true                 # each plugin in its own locked-down process (docs/plugins.md, Plugin isolation)
+# plugin_sandbox_overrides:          # loosen it for one plugin, by its name in the app; only here, never in the app
+#   calendar:
+#     network: ["*.icloud.com"]       # more hosts; `any` opens the network
+#     user: doorman                   # run as Doorman's user
+#     filesystem: open                # no Landlock limit on files (the user and seccomp still apply)
+#     call_timeout_seconds: 600
+#   notes: false                      # back into Doorman's own process
+plugin_call_timeout_seconds: 300     # a plugin call that takes longer fails; its process restarts
+plugin_idle_minutes: 15              # a plugin's process stops after this long without calls
+trigger_poll_minutes: 5              # plugins that declare events (new mail, messages, entries soon) are asked this often
+events_days: 7                       # the event feed agents poll (doorman events, GET /v1/events) keeps this many days
+retention:                           # days doorman.db keeps what grows with use (0: for good)
+  scans_days: 180                    # the guard's score per text; read again later, it's scanned again
+  quarantine_days: 365               # held-back items you released or kept (undecided ones stay)
+  provenance_days: 90                # where addresses agents saw came from ("first seen in")
+  notifications_days: 90
+  attention_days: 90                 # resolved Needs attention items
+  records_days: 365                  # the mail reader's records
+  vacuum_days: 7                     # at most this often, VACUUM when a quarter of the file is free
+
+# Agents get placeholders like [Gesundheit PSN-3F2A9C1B] instead of doctor's appointments (on by
+# default). Leave `rules` out to keep the built-in health words (German, English, Dutch, plus "Dr."
+# in calendar titles); the owner app (More → Privacy) can switch it off and add own words.
+# pseudonymize:
+#   enabled: true
+#   rules:
+#     - {label: Gesundheit, words: ["*arzt*", "*therapie*", "Krankenhaus*"], where: all}
+#     - {label: Gesundheit, words: ["Dr."], where: headers, plugins: [google_calendar, caldav, ics]}
+#     - {label: Bewerbung, words: ["Bewerbung*", "Vorstellungsgespräch"]}
+
+# Optional, off unless switched on: the injection guard scans every third-party read (mail, attachments,
+# files, chats) for prompt injection before an agent gets it; what scores at or over the threshold is held
+# back until you release it. Switch it on in the owner app (More → Injection guard), which downloads the
+# model (Wolf Defender Small v2, ~316 MB), or here with `doorman-admin guard fetch`. It takes ~800 MB of
+# memory while it scans. Settings left out here are managed in the app; a key set here is fixed and
+# read-only there.
+# guard:
+#   enabled: true
+#   threshold: 0.5
+#   window_tokens: 512                # the text is scored in overlapping windows of this many tokens
+#   idle_minutes: 10                  # the scanner's process (~800 MB while it runs) stops after this
+#   threads: 0                        # 0: half the CPUs Doorman may use, at most 4
+#   answer_seconds: 80                # an agent's read that waits longer for a scan answers "busy, ask
+#                                     # again in N s"; the scan goes on (MCP clients give up at 120 s)
+
+# Before the scan, hidden HTML, invisible Unicode and hidden Office text are cut out (sanitize.py). After
+# it, third-party content reaches the agent between random <untrusted_…> tags, with its spaces shown as ˆ
+# (datamarking) and the task restated after it (spotlight.py). Both on unless switched off here.
+# spotlight:
+#   enabled: true
+#   datamark: true
+# A mail or files plugin's `check_hidden_text: false` skips the PDF check (render the page, OCR it, and
+# hold the PDF back when its text layer holds much more than is visible).
+
+extract:                             # text from attachments and files, in a locked-down process of its own
+  ocr: true                          # pages without a text layer (scans) and images: RapidOCR, PP-OCRv6
+  dpi: 200                           # scanned pages are rendered at this resolution for OCR
+  ocr_max_pages: 20                  # per document; ~10 s a page on a small VPS
+  idle_minutes: 10                   # the extractor (~600 MB with OCR loaded) stops after this
+  memory_mb: 2048                    # its address space (virtual, so above what it uses); 0: no cap
+
+# Optional: network watch, an egress proxy in front of the agent's container (docs/network-watch.md;
+# deploy/compose.egress.yaml). Nothing below does anything until you set the proxy up in the app
+# (More > Network), which makes its token. Every setting is in the app too.
+egress:
+  match_hours: 24                    # what an agent read is remembered this long for the leak check
+  note_chars: 40                     # a request carrying this much of it is marked in the log
+  leak_chars: 200                    # this much is a leak: you get a push and a Needs attention entry
+  leak_action: alert                 # alert: the request goes out | block: it doesn't, and the agent's key is
+                                     # paused until you resume it. Either way you are told.
+  log_days: 30
+  large_upload_mb: 5                 # an upload this big to a host never seen before: a push
+  nonweb: log                        # log | block: connections that aren't web traffic (SSH, mail, databases)
+  web_ports: [80, 443, 8080, 8443]
+  categories:                        # blocked by default; each can be switched off
+    exfil_upload: true               # uploads to paste, webhook and tunnel services
+    risky_tlds: true                 # domains often used for abuse (.zip, .top, ...)
+    countries: true                  # addresses in the countries below (DB-IP's free database)
+    bare_ip_nonweb: true             # non-web connections to an IP address no name lookup led to
+    dns_tunnel: true                 # names that look like data hidden in DNS
+  countries: [RU, BY, KP, IR]
+  when_doorman_down: allow           # allow | block: requests the proxy can't have checked
+  unscanned: allow                   # allow | block: an upload too large to check, to a host not allowed
+  no_scan: [api.anthropic.com, api.openai.com, openrouter.ai, inference-api.nousresearch.com,
+            generativelanguage.googleapis.com, api.deepseek.com, api.mistral.ai, api.groq.com,
+            api.together.xyz, api.fireworks.ai, api.x.ai, api.cohere.com]
+                                     # model providers get everything by design: exact API hosts only, never a
+                                     # cloud's whole domain (a bucket there is a drop box); the API keys used
+                                     # with them are listed in the app, a second one is pushed
+  allow: []                          # host, *.host, IP or network, optional :port
+  deny: []
+  passthrough: []                    # TLS not opened (programs that pin certificates): logged, not read
+  risky_tlds: null                   # null: the built-in list (doorman/egress/data/)
+  exfil_hosts: null
+
+uploads:                             # files an agent made, to attach as upload:<sha256>
+  max_mb: 25
+  keep_days: 7                       # deleted after this many days without use
+  max_total_mb: 500                  # what one agent key may keep at a time, in MB and in files
+  max_files: 200
+
+redaction:
+  # one-time codes and sign-in links the agent doesn't get to see:
+  #   basic  - "Your code is 123456" and reset/verify links (default)
+  #   strict - also "123456 is your code", "Use 123456 to sign in", letter codes, token links in
+  #            sign-in mail, and every code in a security sender's mail, subject included
+  #   off    - nothing masked, mail from security_senders included: the agent reads codes, e.g. to
+  #            finish a login you asked for
+  codes: basic
+  security_senders:
+    - no-reply@accounts.google.com
+    - account-security-noreply@accountprotection.microsoft.com
+    - security@*
+
+# Plugins (mail, calendars, the file archive, WhatsApp, ...) aren't set up here: add them in the owner app
+# (Plugins), where every setting is a field; they live in doorman.db. A new Doorman starts with notes and the
+# file archive (data/archive). Credentials go into the vault, from the app or `doorman-admin vault set`.

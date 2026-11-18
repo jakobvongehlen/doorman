@@ -1,0 +1,25 @@
+name: mail_outlook
+extends: mail_imap        # same reads and tools as mail_imap; only the login differs
+version: 0.1.0
+description: >-
+  A Microsoft 365 or Outlook.com mailbox over IMAP and SMTP with a Microsoft login (XOAUTH2), no app
+  registration needed: it signs in as Thunderbird. It works like Mail (IMAP); sending waits for your approval.
+credentials: [refresh_token]     # comes from the login (app: Plugins → Connect)
+network: [outlook.office365.com, smtp.office365.com, login.microsoftonline.com, "{imap_host}", "{smtp_host}"]
+login: oauth
+login_provider: Microsoft
+agent_install: true      # agents may set one up (doorman.install); it starts switched off
+config:
+  address: your mail address, e.g. j.doe@university.example (the IMAP user and From address)
+  from_address: the From address for sent mail, when it isn't your address (an alias)
+  tenant: your organization's tenant id or domain, e.g. university.example (default common)
+  client_id: default Thunderbird's public client id; set your own app registration if you have one
+  redirect_uri: default https://localhost (what Thunderbird's registration allows)
+  login_flow: "paste (default: paste the address back) or device (doorman-admin login shows a code)"
+  imap_host: default outlook.office365.com
+  smtp_host: default smtp.office365.com
+  folders: "names for drafts, sent and archive when the server has no special-use flags; agent_trash (default 'Agent trash') is where deletes go"
+  archive: "index (default): Doorman keeps the text of every message and attachment, in doorman search, also after it's deleted on the server; full: the original messages too (gzipped), so they can be read and sent on after that; off: no archive, and no mail in doorman search"
+  archive_months: "keep only the last N months in the archive, e.g. 24; older mail is dropped as it ages (default: everything)"
+  archive_skip_folders: "more folders not to archive; Junk/Spam, Trash, Drafts, the Outbox and the Agent trash never are"
+  archive_ocr: "read scanned attachments with OCR in the background (default true)"

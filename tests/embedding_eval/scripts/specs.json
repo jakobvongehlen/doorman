@@ -1,0 +1,218 @@
+{
+ "granite97r2-int8-teradata": {
+  "onnx": "model.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "graph",
+  "dims": [
+   384
+  ]
+ },
+ "granite97r2-fp32-ibm": {
+  "onnx": "model_fp32.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "granite97r2-quint8-ibm": {
+  "onnx": "model_quint8_avx2.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "granite97r2-fp16-oc": {
+  "onnx": "model_fp16.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "granite97r2-int8-oc": {
+  "onnx": "model_int8.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "granite97r2-uint8-oc": {
+  "onnx": "model_uint8.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "granite97r2-q4-oc": {
+  "onnx": "model_q4.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "e5small-fp32": {
+  "tokenizer": "tokenizer.json",
+  "pooling": "mean",
+  "output": "last_hidden_state",
+  "query_prefix": "query: ",
+  "doc_prefix": "passage: ",
+  "dims": [
+   384
+  ],
+  "onnx": "model_fp32.onnx"
+ },
+ "e5small-qint8vnni": {
+  "tokenizer": "tokenizer.json",
+  "pooling": "mean",
+  "output": "last_hidden_state",
+  "query_prefix": "query: ",
+  "doc_prefix": "passage: ",
+  "dims": [
+   384
+  ],
+  "onnx": "model_qint8_avx512_vnni.onnx"
+ },
+ "e5small-uint8-xenova": {
+  "tokenizer": "tokenizer.json",
+  "pooling": "mean",
+  "output": "last_hidden_state",
+  "query_prefix": "query: ",
+  "doc_prefix": "passage: ",
+  "dims": [
+   384
+  ],
+  "onnx": "model_uint8.onnx"
+ },
+ "granite107r1-fp32": {
+  "onnx": "model_fp32.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "logits",
+  "dims": [
+   384
+  ]
+ },
+ "granite107r1-quint8-gety": {
+  "onnx": "model_quint8_avx2.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "dims": [
+   384
+  ]
+ },
+ "minilm12-quint8": {
+  "onnx": "model_quint8_avx2.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "mean",
+  "max_tokens": 128,
+  "dims": [
+   384
+  ]
+ },
+ "granite311r2-quint8": {
+  "onnx": "model_quint8_avx2.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   768,
+   384
+  ]
+ },
+ "arcticm2-uint8": {
+  "onnx": "model_uint8.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "graph",
+  "query_prefix": "query: ",
+  "dims": [
+   768,
+   384,
+   256
+  ],
+  "output": "sentence_embedding"
+ },
+ "gte-mb-uint8-oc": {
+  "onnx": "model_uint8.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "graph",
+  "dims": [
+   768,
+   384
+  ],
+  "output": "sentence_embedding"
+ },
+ "e5base-qint8vnni": {
+  "onnx": "model_qint8_avx512_vnni.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "mean",
+  "output": "last_hidden_state",
+  "query_prefix": "query: ",
+  "doc_prefix": "passage: ",
+  "dims": [
+   768
+  ]
+ },
+ "egemma2-q4-oc": {
+  "onnx": "model_q4.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "graph",
+  "query_prefix": "task: search result | query: ",
+  "doc_prefix": "title: none | text: ",
+  "dims": [
+   768,
+   512,
+   384,
+   256
+  ],
+  "output": "sentence_embedding"
+ },
+ "static-mrl-int8": {
+  "onnx": "model_int8.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "graph",
+  "dims": [
+   1024,
+   384
+  ],
+  "output": "sentence_embedding"
+ },
+ "potion-128m": {
+  "onnx": "model.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "graph",
+  "dims": [
+   256
+  ],
+  "output": "embeddings"
+ },
+ "granite97r2-fp32-ibm-extdata": {
+  "onnx": "model.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "dims": [
+   384
+  ]
+ },
+ "granite107r1-quint8-package": {
+  "onnx": "model.onnx",
+  "tokenizer": "tokenizer.json",
+  "pooling": "cls",
+  "output": "last_hidden_state",
+  "max_tokens": 512,
+  "dims": [
+   384
+  ]
+ }
+}

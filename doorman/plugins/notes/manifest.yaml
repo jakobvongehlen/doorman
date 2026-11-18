@@ -1,0 +1,73 @@
+name: notes
+version: 0.1.0
+description: Local notes. A small example plugin that needs no outside service; copy it to start a new plugin.
+credentials: []
+network: []                          # every host the plugin connects to; [] = none (docs/writing-plugins.md)
+ref_read: get              # notes:<id> references are read through notes.get
+# feeds doorman search (index_feed); notes.get's switch gates the text, and notes.list's the hits (they list notes)
+index: {read: get, kinds: [note], every_minutes: 5, needs: {note: list}, security_senders: false}
+reads:
+  - name: list
+    description: All notes with id, title and tags
+    trust: owner
+    params:
+      type: object
+      properties:
+        tag: {type: string}
+      additionalProperties: false
+  - name: get
+    description: One note with its body
+    trust: owner
+    params:
+      type: object
+      properties:
+        id: {type: string}
+      required: [id]
+      additionalProperties: false
+tools:
+  - name: create
+    description: Create a note
+    tier: reversible
+    params:
+      type: object
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        body: {type: string}
+        tags: {type: array, items: {type: string}}
+      required: [title]
+      additionalProperties: false
+  - name: update
+    description: Change a note's title, body or tags
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: {type: string}
+        title: {type: string, minLength: 1, maxLength: 200}
+        body: {type: string}
+        tags: {type: array, items: {type: string}}
+      required: [id]
+      additionalProperties: false
+  - name: delete
+    description: Delete a note
+    tier: reversible
+    params:
+      type: object
+      properties:
+        id: {type: string}
+      required: [id]
+      additionalProperties: false
+  - name: send_copy
+    description: Send a copy of a note to an email address, with an optional covering message (demo; writes to a local sent log)
+    tier: irreversible
+    editable: [message]   # the owner may change it on the approval screen
+    destinations:
+      - {field: to, kind: email}
+    params:
+      type: object
+      properties:
+        id: {type: string}
+        to: {type: string, format: email}
+        message: {type: string, maxLength: 5000}
+      required: [id, to]
+      additionalProperties: false

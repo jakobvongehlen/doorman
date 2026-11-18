@@ -1,0 +1,36 @@
+name: ics
+version: 0.1.0
+description: >-
+  A calendar feed you subscribe to (iCal/ICS), read-only: a university timetable, a team's
+  shared calendar, a sports centre's schedule. Add one plugin per feed. Nothing is written, so nothing needs approval.
+credentials: [url]   # the feed address works like a password, so it lives in the vault
+network: ["{url}"]   # the feed's server
+agenda: events       # what Doorman's agenda over every calendar (doorman agenda) asks this plugin
+# doorman search: every event series of the window (search_past_months back, 12 months ahead), one item per
+# series; the events read's switch gates them
+index: {read: events, kinds: [event], every_minutes: 60, security_senders: false}
+agent_settings: [label, timezone, refresh_minutes]   # what agents may change (doorman.configure); the rest is the owner's
+agent_install: true      # agents may set one up (doorman.install); it starts switched off
+config:
+  label: what the feed is, e.g. "University timetable" (shown to the agent)
+  timezone: IANA zone for times without one, e.g. Europe/Berlin (default UTC)
+  refresh_minutes: how long a downloaded feed is reused (default 30)
+  search_past_months: how far back doorman search finds the feed's events (default 24; 12 months ahead)
+  allow_http: "true to allow a plain http:// address (a server on your own network only)"
+reads:
+  - name: events
+    description: Events between start and end (ISO dates or date-times), recurring ones expanded, sorted by start
+    trust: third_party
+    params:
+      type: object
+      properties:
+        start: {type: string}
+        end: {type: string}
+        query: {type: string, description: words that must appear in the title, location or description}
+      required: [start, end]
+      additionalProperties: false
+  - name: info
+    description: The feed's name, how many events it holds, and when it was last downloaded
+    trust: owner
+    params: {type: object, additionalProperties: false}
+tools: []

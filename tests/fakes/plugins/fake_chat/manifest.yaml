@@ -1,0 +1,36 @@
+name: fake_chat
+version: 0.1.0
+description: Chats kept in a JSON file, shaped like WhatsApp's, for tests of the reader and doorman meta.
+credentials: []
+item: {read: message, param: id, context: context, events: [new_message]}
+reads:
+  - name: chats
+    description: Chats with their ids and names
+    trust: third_party
+    params: {type: object, additionalProperties: false}
+  - name: messages
+    description: Messages in one chat, newest first
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        chat: {type: string}
+      required: [chat]
+      additionalProperties: false
+  - name: message
+    description: One message by <chat>/<id>, with the ones before it
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: {type: string, pattern: "^[0-9a-zA-Z.:-]+@(s\\.whatsapp\\.net|g\\.us)/[0-9]{1,6}$"}
+        context: {type: integer, minimum: 0, maximum: 20}
+      required: [id]
+      additionalProperties: false
+tools: []
+events:
+  - name: new_message
+    description: Someone else wrote in a chat
+    fields: [chat, from, from_name, text]

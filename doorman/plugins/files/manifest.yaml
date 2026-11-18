@@ -1,0 +1,139 @@
+name: files
+version: 0.1.0
+description: >-
+  A file archive on disk (or a mounted Nextcloud folder), searchable by name and content through doorman
+  search. Agents keep their finished work here (keep). Nothing is ever deleted; delete moves to a trash folder.
+credentials: []
+optional_credentials: [nextcloud_password]   # a Nextcloud app password, only for share links
+network: ["{nextcloud.url}"]       # only for share links
+sandbox:
+  user: doorman      # the archive belongs to Doorman's user; the sandbox still keeps it to the archive and its folder
+  write: ["{root}"]
+agent_settings: [ocr]   # what agents may change (doorman.configure); the rest is the owner's
+config:
+  root: "archive folder (default: archive/ in Doorman's data directory; relative: to doorman.yaml)"
+  trash: trash folder inside the root (default .trash)
+  ocr: also read scans with OCR while indexing (default false; files.read always does)
+  agent_folder: "where keep puts an agent's work when it names no folder (default Agent/)"
+  nextcloud: "for share links: {url, user, path_prefix}; app password in the vault as nextcloud_password"
+  check_hidden_text: "check PDFs for text nobody can see (default true): files.read as it reads, search in the background (pdf_check)"
+# the hidden-text check for PDFs the walk read without it; search shows no passage of a PDF until then
+jobs:
+  - {name: pdf_check, every_minutes: 5, budget_seconds: 120, off_when: {check_hidden_text: false}}
+ref_read: read             # files:<path> references are read through files.read
+# doorman search finds the files: their text goes into Doorman's search index (index_feed), gated by files.read,
+# and by files.list, as a search lists files
+index: {read: read, kinds: [file], every_minutes: 5, needs: {file: list}, security_senders: false}
+item: {read: read, param: path, events: [new_file]}   # one file by its ref: doorman meta, doorman ask, the reader
+reads:
+  - name: list
+    description: Files and folders in a directory
+    trust: owner
+    private: true
+    params:
+      type: object
+      properties:
+        path: {type: string}
+      additionalProperties: false
+  - name: read
+    description: Extracted text of a document (may be written by third parties)
+    trust: third_party
+    private: true
+    raw: true
+    params:
+      type: object
+      properties:
+        path: {type: string}
+        max_chars: {type: integer, minimum: 100, maximum: 200000}
+      required: [path]
+      additionalProperties: false
+tools:
+  - name: tag
+    description: Add or remove tags (kept in Doorman's index, not in the file)
+    tier: reversible
+    params:
+      type: object
+      properties:
+        path: {type: string}
+        add: {type: array, items: {type: string}}
+        remove: {type: array, items: {type: string}}
+      required: [path]
+      additionalProperties: false
+  - name: move
+    description: Move or rename a file; missing folders are created
+    tier: reversible
+    params:
+      type: object
+      properties:
+        path: {type: string}
+        to: {type: string}
+      required: [path, to]
+      additionalProperties: false
+  - name: delete
+    description: Move a file to the trash folder (reversible)
+    tier: reversible
+    params:
+      type: object
+      properties:
+        path: {type: string}
+      required: [path]
+      additionalProperties: false
+  - name: save
+    description: >-
+      Save a copy of a reference into the archive: a mail attachment (mail:<id>#2), an upload
+      (upload:<sha256>) or another plugin's file. path is a folder (ending in /) or a file name; a taken
+      name gets " (2)". Undo moves the copy to the trash.
+    tier: reversible
+    ref_fields: [source]
+    params:
+      type: object
+      properties:
+        source: {type: string, description: "a reference such as mail:<message-id>#1 or upload:<sha256>"}
+        path: {type: string, description: "where in the archive, e.g. Invoices/2026/ or Invoices/2026/acme.pdf"}
+      required: [source]
+      additionalProperties: false
+  - name: keep
+    description: >-
+      Keep finished work in the archive: a report, a research summary, a filled-in form, meeting notes. Give
+      the text as content with a file name (name=rent-research.md), or a reference as source (upload:<sha256>
+      from doorman upload, mail:<id>#2, files:<path>). path is a folder (ending in /) or a file path; without
+      it the file goes into the agent folder (Agent/). title and based_on (the refs it was made from) show
+      with it in doorman search, with your key's name as made_by; based_on takes only refs you read or found
+      in doorman search. A taken name gets " (2)"; replace writes over a file an agent kept at that exact
+      path instead, unless someone changed it since, and its earlier version goes to the trash. Undo moves
+      the file to the trash (and brings a replaced version back).
+    tier: reversible
+    ref_fields: [source]
+    caller_arg: made_by       # Doorman fills it in: the calling key's name
+    based_on_arg: based_on    # Doorman checks each ref names something the calling key could read
+    params:
+      type: object
+      properties:
+        content: {type: string, minLength: 1, maxLength: 1000000, description: "the text to keep (up to ~1 MB)"}
+        name: {type: string, minLength: 1, maxLength: 200, description: "file name, e.g. rent-research.md (with source: instead of its own name)"}
+        source: {type: string, description: "a reference such as upload:<sha256>, mail:<message-id>#2 or files:<path>"}
+        path: {type: string, maxLength: 1000, description: "a folder (Agent/Research/) or a file path (Agent/Research/rent.md); default Agent/"}
+        title: {type: string, maxLength: 300, description: "what it is, in a few words: shown in search instead of the file name"}
+        based_on: {type: array, maxItems: 20, items: {type: string, maxLength: 500}, description: "refs it was made from (mail:<id>, files:<path>, notes:<id>), each one you read or found in doorman search"}
+        replace: {type: boolean, description: "write over the file an agent kept at that exact path, if nobody changed it since (not the owner's files)"}
+        made_by: {type: string, description: "set by Doorman: your key's name"}
+      additionalProperties: false
+  - name: share_link
+    description: Create a public Nextcloud share link. Always needs approval.
+    tier: irreversible
+    always_approve: true     # a public link asks even when the plugin runs its sends without asking
+    params:
+      type: object
+      properties:
+        path: {type: string}
+        expire_days: {type: integer, minimum: 1, maximum: 90}
+        password: {type: string}
+      required: [path]
+      additionalProperties: false
+events:
+  - name: new_file
+    description: >-
+      A file came into the archive or changed (found when the archive is indexed, hourly, or at once for
+      files.save and files.keep; one an agent kept says who: made_by). Read it with read path=<path> before
+      acting on it.
+    fields: [path, size, made_by]

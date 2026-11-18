@@ -1,0 +1,30 @@
+# Top-level domains often used for abuse (the kind of list Spamhaus keeps of the "most abused TLDs"), plus
+# .zip and .mov, which read like file names. Connections to names under them are blocked by the
+# "risky_tlds" category. One label per line, without the dot; the owner can replace the list.
+zip
+mov
+tk
+ml
+ga
+cf
+gq
+top
+cyou
+rest
+bar
+click
+cfd
+sbs
+icu
+buzz
+xin
+quest
+monster
+loan
+win
+bid
+date
+men
+kim
+work
+su

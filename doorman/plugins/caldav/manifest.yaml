@@ -1,0 +1,188 @@
+name: caldav
+version: 0.3.0
+description: >-
+  Calendars and to-do lists over CalDAV (Nextcloud, Radicale, iCloud, Fastmail), with one login.
+  Events with outside attendees, answers to invitations and any change to a calendar or list others share
+  count as sends and need your approval; everything else runs right away and can be undone.
+credentials: [username, password]
+network: ["{url}"]                 # the CalDAV server; iCloud moves you on to pNN-caldav.icloud.com: add "*.icloud.com" under sandbox: network
+agenda: events       # what Doorman's agenda over every calendar (doorman agenda) asks this plugin
+# doorman search: every event series and task of the window (search_past_months back, 12 months ahead), one
+# item per series; the events read's switch gates them, and the tasks read's the tasks
+index: {read: events, kinds: [event, task], every_minutes: 30, needs: {task: tasks}, security_senders: false}
+agent_settings: [calendars, default_calendar, lists, default_list, timezone, soon_minutes]   # what agents may change (doorman.configure); the rest is the owner's
+agent_narrow: [calendars, lists]   # agents may keep fewer of these, never add or clear them (they keep calendars away from agents)
+agent_install: true      # agents may set one up (doorman.install); it starts switched off
+config:
+  url: CalDAV URL (server root or principal URL), e.g. https://cloud.example.com/remote.php/dav/
+  calendars: "names of the calendars to use (default all that hold events; [] for none, e.g. tasks only)"
+  default_calendar: calendar for new events (default the first)
+  lists: "names of the task lists to use (default all that hold tasks; [] for none)"
+  default_list: list for new tasks (default the first)
+  owner_emails: your own addresses; other attendees count as outside, and they say which guest you are
+  shared_collections: names of calendars or lists to treat as shared even if the server doesn't say so
+  timezone: IANA zone for times without an offset, e.g. Europe/Berlin (default UTC)
+  soon_minutes: an entry starting within this many minutes is an event_soon for agents (default 30)
+  search_past_months: how far back doorman search finds events and completed tasks (default 24; 12 months ahead)
+  allow_http: "true to allow a plain http:// address (a server on your own network only)"
+reads:
+  - name: calendars
+    description: Names of the calendars
+    trust: owner
+    params: {type: object, additionalProperties: false}
+  - name: events
+    description: Events between start and end (ISO dates or date-times). Recurring events are expanded.
+    trust: third_party
+    params:
+      type: object
+      properties:
+        start: {type: string}
+        end: {type: string}
+        calendar: {type: string}
+      required: [start, end]
+      additionalProperties: false
+  - name: lists
+    description: Names of the task lists
+    trust: owner
+    params: {type: object, additionalProperties: false}
+  - name: tasks
+    description: Tasks, open ones by default, sorted by due date (tasks without one last)
+    trust: owner
+    params:
+      type: object
+      properties:
+        list: {type: string}
+        include_completed: {type: boolean}
+        due_before: {type: string, description: ISO date or date-time}
+      additionalProperties: false
+tools:
+  - name: create_event
+    description: >-
+      Create an event. With outside attendees it sends invitations, and on a shared calendar others see it:
+      either way it's a send and needs your approval.
+    tier: reversible
+    can_send: with guests other than you, or on a shared calendar   # then a send: that call asks, even on Auto
+    destinations:
+      - {field: attendees, kind: email}
+    params:
+      type: object
+      properties:
+        calendar: {type: string}
+        summary: {type: string, minLength: 1}
+        start: {type: string}
+        end: {type: string, description: "default: an hour after start (a day for a date)"}
+        location: {type: string}
+        description: {type: string}
+        attendees: {type: array, items: {type: string, format: email}}
+      required: [summary, start]
+      additionalProperties: false
+  - name: update_event
+    description: Change an event's time, title, place or description
+    tier: reversible
+    can_send: with guests other than you, or on a shared calendar   # then a send: that call asks, even on Auto
+    destinations:
+      - {field: changes.attendees, kind: email}
+    params:
+      type: object
+      properties:
+        uid: {type: string}
+        changes:
+          type: object
+          properties:
+            summary: {type: string, minLength: 1}
+            start: {type: string}
+            end: {type: string}
+            location: {type: string}
+            description: {type: string}
+            attendees: {type: array, items: {type: string, format: email}}
+          additionalProperties: false
+          minProperties: 1
+      required: [uid, changes]
+      additionalProperties: false
+  - name: delete_event
+    description: Delete an event (cancels it for outside attendees)
+    tier: reversible
+    can_send: with guests other than you, on a shared calendar, or on an invitation (declines it)   # then a send: that call asks, even on Auto
+    params:
+      type: object
+      properties:
+        uid: {type: string}
+      required: [uid]
+      additionalProperties: false
+  - name: respond
+    description: >-
+      Answer an invitation (an event someone else organizes, with you as a guest): accept, decline or
+      tentative. The server tells the organizer; for a series, every occurrence is answered.
+    tier: irreversible
+    destinations:
+      - {field: to, kind: email}   # the organizer, filled in from the event
+    params:
+      type: object
+      properties:
+        uid: {type: string}
+        response: {type: string, enum: [accept, decline, tentative]}
+      required: [uid, response]
+      additionalProperties: false
+  - name: create_task
+    description: Add a task. On a list others share, it's a send and needs approval.
+    tier: reversible
+    can_send: on a shared list   # others see it at once: a send, so that call asks, even on Auto
+    params:
+      type: object
+      properties:
+        list: {type: string}
+        summary: {type: string, minLength: 1, maxLength: 500}
+        description: {type: string}
+        due: {type: string, description: ISO date or date-time}
+        priority: {type: integer, minimum: 1, maximum: 9, description: 1 is highest}
+        tags: {type: array, items: {type: string}}
+      required: [summary]
+      additionalProperties: false
+  - name: update_task
+    description: Change a task's title, notes, due date, priority or tags
+    tier: reversible
+    can_send: on a shared list   # others see it at once: a send, so that call asks, even on Auto
+    params:
+      type: object
+      properties:
+        uid: {type: string}
+        changes:
+          type: object
+          properties:
+            summary: {type: string, minLength: 1, maxLength: 500}
+            description: {type: string}
+            due: {type: [string, "null"], description: ISO date or date-time; null removes it}
+            priority: {type: [integer, "null"], minimum: 1, maximum: 9}
+            tags: {type: array, items: {type: string}}
+          additionalProperties: false
+          minProperties: 1
+      required: [uid, changes]
+      additionalProperties: false
+  - name: complete_task
+    description: Tick a task off, or open it again with done=false
+    tier: reversible
+    can_send: on a shared list   # others see it at once: a send, so that call asks, even on Auto
+    params:
+      type: object
+      properties:
+        uid: {type: string}
+        done: {type: boolean}
+      required: [uid]
+      additionalProperties: false
+  - name: delete_task
+    description: Delete a task
+    tier: reversible
+    can_send: on a shared list   # others see it at once: a send, so that call asks, even on Auto
+    params:
+      type: object
+      properties:
+        uid: {type: string}
+      required: [uid]
+      additionalProperties: false
+events:
+  - name: invite_received
+    description: Someone else put an event with you on one of your calendars
+    fields: [from, summary, start]
+  - name: event_soon
+    description: An entry starts within soon_minutes (default 30); once per occurrence
+    fields: [summary, start, end, location, calendar, minutes]

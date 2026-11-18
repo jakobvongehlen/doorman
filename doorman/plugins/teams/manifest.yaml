@@ -1,0 +1,154 @@
+name: teams
+version: 0.1.0
+description: >-
+  Microsoft Teams chats (and channels, if your admin allows) through Microsoft Graph. No app registration
+  needed: it signs in as Thunderbird. Reading is direct; every message the agent writes is a send and
+  waits for your approval.
+credentials: [refresh_token]     # comes from the login (app: Plugins → Connect)
+network: [graph.microsoft.com, login.microsoftonline.com]
+login: oauth                     # the owner app shows Connect / Disconnect for this plugin
+login_provider: Microsoft
+agent_install: true      # agents may set one up (doorman.install); it starts switched off
+config:
+  tenant: your organization's tenant id or domain, e.g. university.example (default organizations)
+  client_id: "default Thunderbird's public client id; or your own app registration (Entra ID, Mobile and desktop applications, redirect http://localhost)"
+  redirect_uri: "default https://localhost with Thunderbird's id, http://localhost:8799/ with your own"
+  login_flow: "paste (default: paste the address back) or device (doorman-admin login shows a code)"
+  scopes: "Graph permissions to ask for. Default with Thunderbird's id: offline_access User.Read Chat.Read Chat.Create ChatMessage.Send (chats; no admin needed). Channels need an admin: add Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send once they consented. With your own client_id the default has both."
+setup:
+  - >-
+    Leave **client_id** empty: Doorman then signs in as Thunderbird (its public client id), so you need
+    no app registration. Set **tenant** to your organization's domain, e.g. `university.example`.
+  - >-
+    On the card: **Connect account**, and sign in with your work or school account. Microsoft ends on
+    `https://localhost/?code=…`, a page that doesn't load: copy its whole address into the card. On
+    Doorman's host `doorman-admin login <name>` does the same; with **login_flow** `device` it shows a
+    code to enter at microsoft.com/devicelogin instead (some tenants block those).
+  - >-
+    Microsoft then either asks you to consent to reading and sending your chats, or says **Need admin
+    approval**. That answer is the test: with it, your organization's admins decide. They see the
+    request under Thunderbird's name, not Doorman's.
+  - >-
+    Channels aren't part of this sign-in: reading channel posts always needs an admin's consent, and
+    until then the agent is told so. Once an admin allowed it, add `Team.ReadBasic.All
+    Channel.ReadBasic.All ChannelMessage.Read.All ChannelMessage.Send` to **scopes** and connect again.
+recent: recent   # what Doorman's what's-new list over mail and chats (doorman recent) asks
+item: {read: chat_message, param: id, context: context, events: [new_message]}   # one chat message by its ref: doorman meta, doorman ask, the reader
+reads:
+  - name: chats
+    description: >-
+      Your chats (1:1, group, meeting), newest message first, with topic, members and who wrote last when
+      (last_message). The text is in recent.
+    trust: third_party   # any member sets a group's topic, and names come from other people
+    params:
+      type: object
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 50}
+      additionalProperties: false
+  - name: recent
+    description: >-
+      What's new in your chats: each chat's newest message (from, sent, the start of its text), newest
+      first; mine is true when you wrote it. Read chat_messages for a chat's earlier messages. Third-party
+      content.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        since: {type: string, minLength: 10, maxLength: 40, description: "ISO date or date-time: only chats with a message since then"}
+        limit: {type: integer, minimum: 1, maximum: 50, description: "chats to look at (default 20)"}
+      additionalProperties: false
+  - name: chat_messages
+    description: Recent messages in a chat, newest first. Message text is third-party content.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        chat_id: {type: string, pattern: "^[A-Za-z0-9:@._=-]{1,300}$"}
+        limit: {type: integer, minimum: 1, maximum: 50}
+      required: [chat_id]
+      additionalProperties: false
+  - name: chat_message
+    description: >-
+      One chat message by the part of its ref after teams: (<chat id>/<message id>), with the chat's
+      messages before it (context). Third-party content.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: {type: string, pattern: "^[A-Za-z0-9:@._=-]{1,300}/[0-9]{1,30}$"}
+        context: {type: integer, minimum: 0, maximum: 20, description: "earlier messages to include (default 10)"}
+      required: [id]
+      additionalProperties: false
+  - name: teams
+    description: Teams you're a member of
+    trust: owner
+    params: {type: object, additionalProperties: false}
+  - name: channels
+    description: Channels of a team
+    trust: owner
+    params:
+      type: object
+      properties:
+        team_id: {type: string, pattern: "^[A-Za-z0-9-]{1,100}$"}
+      required: [team_id]
+      additionalProperties: false
+  - name: channel_messages
+    description: Recent posts in a channel with their replies, newest first. Third-party content.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        team_id: {type: string, pattern: "^[A-Za-z0-9-]{1,100}$"}
+        channel_id: {type: string, pattern: "^[A-Za-z0-9:@._=-]{1,300}$"}
+        limit: {type: integer, minimum: 1, maximum: 50}
+      required: [team_id, channel_id]
+      additionalProperties: false
+tools:
+  - name: send_chat
+    description: Write in an existing chat. Needs your approval.
+    tier: irreversible
+    editable: [text]   # the owner may change these on the approval screen
+    params:
+      type: object
+      properties:
+        chat_id: {type: string, pattern: "^[A-Za-z0-9:@._=-]{1,300}$"}
+        text: {type: string, minLength: 1, maxLength: 20000}
+      required: [chat_id, text]
+      additionalProperties: false
+  - name: message_person
+    description: Message someone 1:1 by their work email (starts the chat if needed). Needs your approval.
+    tier: irreversible
+    editable: [text]   # the owner may change these on the approval screen
+    destinations:
+      - {field: to, kind: email}
+    params:
+      type: object
+      properties:
+        to: {type: string, format: email}
+        text: {type: string, minLength: 1, maxLength: 20000}
+      required: [to, text]
+      additionalProperties: false
+  - name: post_channel
+    description: Start a post in a channel, or reply to one with reply_to. Needs your approval.
+    tier: irreversible
+    editable: [subject, text]   # the owner may change these on the approval screen
+    params:
+      type: object
+      properties:
+        team_id: {type: string, pattern: "^[A-Za-z0-9-]{1,100}$"}
+        channel_id: {type: string, pattern: "^[A-Za-z0-9:@._=-]{1,300}$"}
+        reply_to: {type: string, pattern: "^[0-9]{1,30}$", description: id of the post being answered}
+        subject: {type: string, maxLength: 200}
+        text: {type: string, minLength: 1, maxLength: 20000}
+      required: [team_id, channel_id, text]
+      additionalProperties: false
+events:
+  - name: new_message
+    description: >-
+      Someone else wrote in one of your chats (not channels). Several messages between two polls come as
+      one, the newest; read chat_messages with the chat_id for all of them.
+    fields: [chat_id, topic, from, text, sent]

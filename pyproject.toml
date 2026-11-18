@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doorman"
+version = "0.1.0"
+description = "The tool, MCP and approval layer for AI agents: one panel for every tool, approvals on your phone, a journal with undo, credentials kept out of the agent's reach"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "doorman/owner_app/fonts/OFL.txt"]
+requires-python = ">=3.11"
+keywords = ["ai-agents", "mcp", "model-context-protocol", "approvals", "human-in-the-loop", "tool-permissions", "self-hosted"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pyyaml>=6",
+    "httpx>=0.27",
+    "jsonschema>=4",
+    "cryptography>=42",
+    "croniter>=2",
+    "webauthn>=2",
+    "segno>=1.6",   # the WhatsApp link QR code, drawn in the owner app
+]
+
+[project.optional-dependencies]
+calendar = ["caldav>=1.3", "icalendar>=5", "recurring-ical-events>=2"]
+# the mail archive: word stems (German, Dutch, English) and close spellings in its search
+mail = ["imapclient>=3", "snowballstemmer>=2.2", "rapidfuzz>=3"]
+# the text extractor: PDFs page by page, and OCR (PP-OCRv6, shipped inside rapidocr 3.10.0, pinned by hash)
+extract = ["pypdfium2>=5", "rapidocr==3.10.0", "onnxruntime>=1.20", "Pillow>=10"]
+guard = ["onnxruntime>=1.20", "tokenizers>=0.20", "numpy>=1.26"]
+all = ["caldav>=1.3", "icalendar>=5", "recurring-ical-events>=2", "imapclient>=3", "snowballstemmer>=2.2",
+       "rapidfuzz>=3",
+       "onnxruntime>=1.20", "tokenizers>=0.20", "numpy>=1.26", "pypdfium2>=5", "rapidocr==3.10.0", "Pillow>=10"]
+demo = ["radicale>=3", "aiosmtpd>=1.4"]  # doorman-admin demo's local CalDAV and SMTP (and dovecot from the system)
+test = ["pytest>=8", "pytest-xdist>=3", "radicale>=3", "aiosmtpd>=1.4", "http-ece>=1.2", "pypdf>=4"]  # pypdf: building test PDFs
+
+[project.urls]
+Homepage = "https://github.com/jakobvongehlen/doorman"
+Documentation = "https://github.com/jakobvongehlen/doorman/tree/main/docs"
+Issues = "https://github.com/jakobvongehlen/doorman/issues"
+
+[project.scripts]
+doorman-admin = "doorman.admin:main"
+doorman-reader = "doorman.reader:main"
+
+[tool.setuptools.packages.find]
+include = ["doorman*"]
+
+[tool.setuptools.package-data]
+"doorman" = ["owner_app/*", "owner_app/fonts/*", "agent_skill/*.md", "agent_skill/scripts/*.py", "plugins/*/manifest.yaml", "plugins/*/plugin.py", "doorman.example.yaml",
+            "egress/data/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: needs a local test server (Radicale, Dovecot, SMTP)",
+    "slow: runs real OCR, seconds a page; leave out while iterating with -m \"not slow\"",
+]

@@ -1,0 +1,113 @@
+# Doorman runs apart from the agent: the agent's container gets DOORMAN_URL, an agent key and
+# port 8710 of this stack, never Doorman's volume or the owner app. It may use the open web.
+# Notifications go from Doorman straight to the phone app as Web Push; no extra service.
+# No service here gets the Docker socket: whoever holds it controls the host, and none of them needs it.
+#
+# Three setups, chosen once with COMPOSE_FILE in deploy/.env (see .env.example), so that plain
+# `docker compose up -d`, `exec`, `logs` and `down` always mean the whole stack:
+#   compose.yaml                                          Doorman; your agent joins the doorman-agent network
+#   compose.yaml:compose.egress.yaml:compose.hermes.yaml  plus network watch, with Hermes behind the proxy
+#   compose.yaml:compose.egress.yaml:compose.myagent.yaml plus network watch, your own agent (a copy of
+#                                                         compose.hermes.yaml)
+# Network watch (compose.egress.yaml, deploy/egress/README.md): the agent's only way out is the egress proxy,
+# which logs every connection, applies the owner's rules and reports or blocks requests carrying what Doorman served.
+# The WhatsApp sidecar and the reader are profiles in any of them (COMPOSE_PROFILES in .env, or --profile).
+services:
+  doorman:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./data:/data                 # doorman.yaml, doorman.db, vault.enc
+      - ./backups:/backups           # the nightly backup (backup.dir); backup.copy_command copies it off the host
+      # - /srv/archive:/srv/archive  # the file archive is in ./data/archive; for a host folder instead,
+      #                              # mount it here and set it as the files plugin's root in the app
+      - whatsapp-token:/run/doorman-whatsapp:ro   # the WhatsApp sidecar's token; Doorman copies it to the vault
+    environment:
+      DOORMAN_VAULT_KEY: ${DOORMAN_VAULT_KEY}   # generate once: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      # owner app: on this machine only, for the HTTPS in front of it (a tunnel or a reverse proxy).
+      # DOORMAN_OWNER_BIND=0.0.0.0 in .env opens it to your network, for an app without HTTPS (a password
+      # sign-in; add that network to owner_allow_cidrs in doorman.yaml). ./setup.sh sets both.
+      - "${DOORMAN_OWNER_BIND:-127.0.0.1}:8711:8711"
+    networks:
+      agent: {}
+      default: {}                    # compose.egress.yaml adds the proxy's two networks
+    # Starts as root for privsep.py, which runs Doorman as the user doorman and each plugin as a user
+    # of its own; these are all the rights it needs. Plugins also lock themselves down with Landlock and
+    # seccomp (Linux 6.7+); Docker's default seccomp profile allows that.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, KILL]
+    security_opt: ["no-new-privileges:true"]
+    # Doorman ~150 MB and each plugin process 20-150 MB; the text extractor with OCR ~600 MB while it
+    # works (it stops after 10 idle minutes). The optional parts on top: the injection scanner ~800 MB
+    # while it works, the semantic search model ~500 MB. 3g covers all of them at once (2g didn't); 768m
+    # is enough with extract.ocr: false and neither optional part switched on.
+    mem_limit: 3g
+    healthcheck:                     # /health: database answers and the worker ticked recently
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8710/health', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+  # WhatsApp on a second number: docker compose --profile whatsapp up -d, then link it once under
+  # Plugins → whatsapp in the app (QR code or pairing code). It makes up the token Doorman uses for it
+  # and leaves it in the whatsapp-token volume. See sidecars/whatsapp/README.md.
+  whatsapp:
+    profiles: [whatsapp]
+    build: ../sidecars/whatsapp
+    restart: unless-stopped
+    environment:
+      SIDECAR_TOKEN: ${SIDECAR_TOKEN:-}   # optional: your own token instead of the generated one
+    volumes:
+      - ./whatsapp:/data             # wacli's session and message store; owned by uid 10001
+      - whatsapp-token:/run/doorman-whatsapp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+  # Only for the optional reader/actor split: turns mail, chats and new files into records for the actor
+  # and answers its questions. docker compose --profile reader up -d. It needs a reader
+  # key (More > Agents in the app) and an OpenAI-compatible model API; see docs/reader-actor.md.
+  reader:
+    profiles: [reader]
+    build:
+      context: ..
+      dockerfile: deploy/reader.Dockerfile
+    restart: unless-stopped
+    environment:
+      DOORMAN_URL: http://doorman:8710
+      DOORMAN_TOKEN: ${READER_DOORMAN_TOKEN:-}
+      READER_API_BASE: ${READER_API_BASE:-}   # e.g. a German host's https://.../v1
+      READER_API_KEY: ${READER_API_KEY:-}
+      READER_MODEL: ${READER_MODEL:-}         # the host's name for the DeepSeek model
+      READER_RESPONSE_FORMAT: ${READER_RESPONSE_FORMAT:-json_object}
+    networks: [agent]                # doorman:8710 and the internet; not the owner app
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 96m
+    # runtime: runsc                 # gVisor, once installed on the host: its own kernel in user space
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24    # matches owner_allow_cidrs in doorman.yaml
+  agent:
+    name: doorman-agent             # attach the agent's container to this network to reach doorman:8710
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24    # not in owner_allow_cidrs: the agent can't reach the owner app
+
+volumes:
+  whatsapp-token: {}                 # the WhatsApp sidecar writes its token here; Doorman reads it

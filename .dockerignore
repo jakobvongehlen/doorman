@@ -1,0 +1,16 @@
+# The images are built from the repository root (deploy/compose.yaml: context ..); keep the context small
+# and runtime data out of it.
+.git
+.venv
+.claude
+.pytest_cache
+**/__pycache__
+*.egg-info
+build
+dist
+tests
+deploy/.env
+deploy/data
+deploy/backups
+deploy/egress-data
+deploy/whatsapp

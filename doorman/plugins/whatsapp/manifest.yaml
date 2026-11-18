@@ -1,0 +1,91 @@
+name: whatsapp
+version: 0.3.0
+description: WhatsApp through the wacli sidecar (a linked device, like WhatsApp Web). Unofficial; WhatsApp may ban accounts that use it.
+credentials: [sidecar_token]
+# the sidecar makes up its token and writes it here, in a volume both containers mount (deploy/compose.yaml);
+# Doorman copies it to the vault, so nobody types it
+credential_files: {sidecar_token: /run/doorman-whatsapp/token}
+login: link              # Connect in the owner app shows a QR code (or a pairing code) to link the sidecar
+login_provider: WhatsApp
+network: ["{sidecar_url|http://127.0.0.1:8720}"]
+config:
+  sidecar_url: default http://127.0.0.1:8720
+  timezone: IANA zone a chat's days and times are counted in for doorman search, e.g. Europe/Berlin (default UTC)
+setup:
+  - >-
+    On Doorman's host, in `deploy/`: `docker compose --profile whatsapp up -d`. Set **sidecar_url** to
+    `http://whatsapp:8720`. The sidecar makes up its token, and Doorman takes it within a few seconds.
+  - >-
+    On the card: **Link WhatsApp**, then on your phone WhatsApp → Settings → Linked devices → Link a device,
+    and scan the code. Or have a code sent for your number and type it in on the phone. Use a second
+    number if you can: WhatsApp may ban accounts that use unofficial clients.
+recent: recent   # what Doorman's what's-new list over mail and chats (doorman recent) asks
+item: {read: message, param: id, context: context, events: [new_message]}   # one message by its ref: doorman meta, doorman ask, the reader
+# doorman search: one item per chat and day (its messages as "HH:MM Sender: text"), the whole history first,
+# then what wacli's change log names; the message read's switch gates them, as a hit's ref is a message's,
+# and the messages read's too, as a chat's day is what it returns
+index: {read: message, kinds: [chat], every_minutes: 5, needs: {chat: messages}, security_senders: false}
+reads:
+  - name: chats
+    description: Chats with their ids (JIDs), names and last activity, most recent first; query finds one by name or number
+    trust: third_party
+    params:
+      type: object
+      properties:
+        query: {type: string, minLength: 1, maxLength: 100, description: "part of a chat's name, or a phone number in any format"}
+        limit: {type: integer, minimum: 1, maximum: 500}
+      additionalProperties: false
+  - name: recent
+    description: >-
+      What's new in your chats: each chat's newest message (from, sent, the start of its text), newest
+      first; mine is true when you wrote it, unread counts what you haven't read. Third-party content.
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        since: {type: string, minLength: 10, maxLength: 40, description: "ISO date or date-time: only chats with a message since then"}
+        limit: {type: integer, minimum: 1, maximum: 50, description: "chats to look at (default 20)"}
+      additionalProperties: false
+  - name: messages
+    description: Recent messages in one chat, newest first
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        chat: {type: string}
+        limit: {type: integer, minimum: 1, maximum: 200}
+      required: [chat]
+      additionalProperties: false
+  - name: message
+    description: >-
+      One message by the part of its ref after whatsapp: (<chat>/<message id>), with the messages before it
+      in the chat (context)
+    trust: third_party
+    raw: true
+    params:
+      type: object
+      properties:
+        id: {type: string, pattern: "^[0-9a-zA-Z.:-]+@(s\\.whatsapp\\.net|g\\.us|lid)/[0-9A-Za-z._:-]{1,128}$"}
+        context: {type: integer, minimum: 0, maximum: 20, description: "earlier messages to include (default 10)"}
+      required: [id]
+      additionalProperties: false
+tools:
+  - name: send
+    description: Send a text message. Needs your approval.
+    tier: irreversible
+    editable: [text]   # the owner may change these on the approval screen
+    destinations:
+      - {field: chat, kind: chat}
+    params:
+      type: object
+      properties:
+        chat: {type: string, pattern: "^[0-9a-zA-Z.:-]+@(s\\.whatsapp\\.net|g\\.us|lid)$"}
+        text: {type: string, minLength: 1, maxLength: 4000}
+      required: [chat, text]
+      additionalProperties: false
+events:
+  - name: new_message
+    description: Someone else wrote in a chat; text is the message's start. Read messages with the chat for more.
+    fields: [chat, chat_name, from, from_name, text, sent]
